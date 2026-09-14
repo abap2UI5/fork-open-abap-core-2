@@ -135,6 +135,11 @@ CLASS ltcl_call_transformation DEFINITION FOR TESTING RISK LEVEL HARMLESS DURATI
     METHODS byte_order_mark_little FOR TESTING RAISING cx_static_check.
     METHODS dot_abapgit FOR TESTING RAISING cx_static_check.
     METHODS suppress_in_ixml_doc FOR TESTING RAISING cx_static_check.
+    METHODS escape_markup_out FOR TESTING RAISING cx_static_check.
+    METHODS escape_markup_roundtrip FOR TESTING RAISING cx_static_check.
+    METHODS escape_escaped_roundtrip FOR TESTING RAISING cx_static_check.
+    METHODS line_feed_roundtrip FOR TESTING RAISING cx_static_check.
+    METHODS escape_char_field_roundtrip FOR TESTING RAISING cx_static_check.
 ENDCLASS.
 
 CLASS ltcl_call_transformation IMPLEMENTATION.
@@ -1317,6 +1322,122 @@ CLASS ltcl_call_transformation IMPLEMENTATION.
       act = li_found
       msg = 'NUMC_VAL (initial 00000) must be suppressed' ).
 
+  ENDMETHOD.
+
+
+  METHOD escape_markup_out.
+* the three characters XML reserves are escaped in element content, the way
+* a system writes them - unescaped, the value is read back as markup
+    DATA lv_actual TYPE string.
+    DATA: BEGIN OF ls_xml,
+            field TYPE string,
+          END OF ls_xml.
+
+    ls_xml-field = 'a<b>c&d'.
+
+    CALL TRANSFORMATION id
+      SOURCE repo = ls_xml
+      RESULT XML lv_actual.
+
+    cl_abap_unit_assert=>assert_char_cp(
+      act = lv_actual
+      exp = |*<FIELD>a&lt;b&gt;c&amp;d</FIELD>*| ).
+  ENDMETHOD.
+
+  METHOD escape_markup_roundtrip.
+* a string that HOLDS an XML document, which is the shape that found this:
+* written unescaped it came back cut at its first `<`
+    DATA lv_xml TYPE string.
+    DATA: BEGIN OF ls_out,
+            field TYPE string,
+          END OF ls_out.
+    DATA ls_in LIKE ls_out.
+
+    ls_out-field = '<doc attr="1">text &amp; more</doc>'.
+
+    CALL TRANSFORMATION id
+      SOURCE repo = ls_out
+      RESULT XML lv_xml.
+
+    CALL TRANSFORMATION id
+      SOURCE XML lv_xml
+      RESULT repo = ls_in.
+
+    cl_abap_unit_assert=>assert_equals(
+      act = ls_in-field
+      exp = ls_out-field ).
+  ENDMETHOD.
+
+  METHOD escape_escaped_roundtrip.
+* an escape inside an escaped value: `&lt;` in the data is written `&amp;lt;`
+* and has to come back as `&lt;`, not as `<`. Resolving `&amp;` first
+* resolved it twice
+    DATA lv_xml TYPE string.
+    DATA: BEGIN OF ls_out,
+            field TYPE string,
+          END OF ls_out.
+    DATA ls_in LIKE ls_out.
+
+    ls_out-field = 'x &lt;tag&gt; y &amp; z'.
+
+    CALL TRANSFORMATION id
+      SOURCE repo = ls_out
+      RESULT XML lv_xml.
+
+    CALL TRANSFORMATION id
+      SOURCE XML lv_xml
+      RESULT repo = ls_in.
+
+    cl_abap_unit_assert=>assert_equals(
+      act = ls_in-field
+      exp = ls_out-field ).
+  ENDMETHOD.
+
+  METHOD line_feed_roundtrip.
+* a line break inside a value is a character of the value, not whitespace
+* between tags - the parser used to strip every line feed in the document
+    DATA lv_xml TYPE string.
+    DATA: BEGIN OF ls_out,
+            field TYPE string,
+          END OF ls_out.
+    DATA ls_in LIKE ls_out.
+
+    ls_out-field = |a{ cl_abap_char_utilities=>newline }b|.
+
+    CALL TRANSFORMATION id
+      SOURCE repo = ls_out
+      RESULT XML lv_xml.
+
+    CALL TRANSFORMATION id
+      SOURCE XML lv_xml
+      RESULT repo = ls_in.
+
+    cl_abap_unit_assert=>assert_equals(
+      act = ls_in-field
+      exp = ls_out-field ).
+  ENDMETHOD.
+
+  METHOD escape_char_field_roundtrip.
+* the same for a fixed-length character field, not only for STRING
+    DATA lv_xml TYPE string.
+    DATA: BEGIN OF ls_out,
+            field TYPE c LENGTH 10,
+          END OF ls_out.
+    DATA ls_in LIKE ls_out.
+
+    ls_out-field = 'a<b>&c'.
+
+    CALL TRANSFORMATION id
+      SOURCE repo = ls_out
+      RESULT XML lv_xml.
+
+    CALL TRANSFORMATION id
+      SOURCE XML lv_xml
+      RESULT repo = ls_in.
+
+    cl_abap_unit_assert=>assert_equals(
+      act = ls_in-field
+      exp = ls_out-field ).
   ENDMETHOD.
 
 ENDCLASS.

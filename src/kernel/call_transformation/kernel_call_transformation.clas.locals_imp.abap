@@ -38,6 +38,12 @@ CLASS lcl_data_to_xml DEFINITION.
   PRIVATE SECTION.
     DATA mo_heap    TYPE REF TO lcl_heap.
     DATA ms_options TYPE kernel_call_transformation=>ty_options.
+
+    CLASS-METHODS escape_text
+      IMPORTING
+        iv_value        TYPE clike
+      RETURNING
+        VALUE(rv_value) TYPE string.
 ENDCLASS.
 
 CLASS lcl_heap IMPLEMENTATION.
@@ -159,6 +165,25 @@ CLASS lcl_data_to_xml IMPLEMENTATION.
     rv_xml = mo_heap->serialize( ).
   ENDMETHOD.
 
+  METHOD escape_text.
+* The three characters XML reserves inside element content. A system's
+* CALL TRANSFORMATION id escapes them on the way out and the parse direction
+* resolves them again, so a character value that CONTAINS markup - an XML
+* document held in a string is the case that finds this - survives the
+* roundtrip. Written unescaped, it is read back as elements and the value
+* ends at its first `<`.
+*
+* `"` and `'` are deliberately NOT escaped: they are only special inside an
+* attribute value, and a system leaves them alone in element content.
+* lcl_escape=>unescape_value in cl_ixml resolves them either way, so the
+* roundtrip would survive - but the document would not be the one a system
+* writes.
+    rv_value = iv_value.
+    REPLACE ALL OCCURRENCES OF '&' IN rv_value WITH '&amp;'.
+    REPLACE ALL OCCURRENCES OF '<' IN rv_value WITH '&lt;'.
+    REPLACE ALL OCCURRENCES OF '>' IN rv_value WITH '&gt;'.
+  ENDMETHOD.
+
   METHOD run.
     DATA lo_type  TYPE REF TO cl_abap_typedescr.
     DATA lo_struc TYPE REF TO cl_abap_structdescr.
@@ -202,7 +227,14 @@ CLASS lcl_data_to_xml IMPLEMENTATION.
 
         IF lo_type->type_kind = cl_abap_typedescr=>typekind_string AND <ref> IS INITIAL.
           rv_xml = rv_xml && |<{ iv_name }/>|.
+        ELSEIF lo_type->type_kind = cl_abap_typedescr=>typekind_string
+            OR lo_type->type_kind = cl_abap_typedescr=>typekind_char.
+          rv_xml = rv_xml &&
+            |<{ iv_name }>| &&
+            escape_text( <ref> ) &&
+            |</{ iv_name }>|.
         ELSE.
+* a numeric, date, time or hex value has no character XML reserves
           rv_xml = rv_xml &&
             |<{ iv_name }>| &&
             <ref> &&

@@ -15,12 +15,17 @@ ENDCLASS.
 
 CLASS lcl_escape IMPLEMENTATION.
   METHOD unescape_value.
+* `&amp;` is resolved LAST, and the order is the whole point: a parser
+* resolves every reference ONCE. Resolved first, it turns the escaped form of
+* an escape - `&amp;lt;`, which is how a value that itself contains `&lt;`
+* is written - into `&lt;`, which the next line then resolves into `<`. The
+* inner document is parsed as markup and its text is lost to the tags.
     rv_value = iv_value.
-    REPLACE ALL OCCURRENCES OF '&amp;' IN rv_value WITH '&'.
     REPLACE ALL OCCURRENCES OF '&lt;' IN rv_value WITH '<'.
     REPLACE ALL OCCURRENCES OF '&gt;' IN rv_value WITH '>'.
     REPLACE ALL OCCURRENCES OF '&quot;' IN rv_value WITH '"'.
     REPLACE ALL OCCURRENCES OF '&apos;' IN rv_value WITH |'|.
+    REPLACE ALL OCCURRENCES OF '&amp;' IN rv_value WITH '&'.
   ENDMETHOD.
 
   METHOD escape_value.
@@ -1318,7 +1323,13 @@ CLASS lcl_parser IMPLEMENTATION.
       lv_xml = lv_xml+1.
     ENDIF.
 
-    REPLACE ALL OCCURRENCES OF |\n| IN lv_xml WITH ||.
+* No document-wide line-feed strip here. It was a second way of skipping the
+* whitespace a pretty-printed document carries between its tags, and the loop
+* below already does that - `lv_whitespace` is
+* get_simple_spaces_for_cur_cp( ), which contains the line feed. What the
+* strip could not tell apart is a line feed inside TEXT content, and there it
+* is not whitespace between tags but a character of the value: a two-line
+* string went out as two lines and came back as one.
 
     WHILE lv_xml IS NOT INITIAL.
       CLEAR lo_node.
